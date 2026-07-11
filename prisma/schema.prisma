@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  title     String
+  slug      String   @unique
+  content   String
+  type      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Decision {
+  id         String   @id @default(uuid())
+  decisionId Int      @unique
+  title      String
+  summary    String
+  rationale  String?
+  status     String   @default("Approved")
+  createdAt  DateTime @default(now())
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      String   @default("planning")
+  startedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
