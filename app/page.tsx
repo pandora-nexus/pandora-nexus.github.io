@@ -28,6 +28,12 @@ export default function Home() {
           >
             Values
           </Link>
+          <Link
+            href="/handbook"
+            className="border border-white px-6 py-3 hover:bg-white hover:text-black transition"
+          >
+            Handbook
+          </Link>
         </div>
       </main>
 
