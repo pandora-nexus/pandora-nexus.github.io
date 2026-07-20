@@ -34,6 +34,12 @@ export default function Home() {
           >
             Handbook
           </Link>
+          <Link
+            href="/studio"
+            className="border border-yellow-500 text-yellow-500 px-6 py-3 hover:bg-yellow-500 hover:text-black transition"
+          >
+            Studio
+          </Link>
         </div>
       </main>
 

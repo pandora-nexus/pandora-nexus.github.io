@@ -8,13 +8,14 @@ datasource db {
 }
 
 model Document {
-  id        String   @id @default(uuid())
-  title     String
-  slug      String   @unique
-  content   String
-  type      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String    @id @default(uuid())
+  title         String
+  slug          String    @unique
+  content       String
+  type          String
+  searchVector  Unsupported("tsvector")?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Decision {
@@ -34,4 +35,21 @@ model Project {
   status      String   @default("planning")
   startedAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+model Conversation {
+  id        String   @id @default(uuid())
+  question  String
+  answer    String
+  language  String   @default("en")
+  sources   String?
+  createdAt DateTime @default(now())
+}
+model Learning {
+  id          String   @id @default(uuid())
+  category    String   // "correction", "improvement", "error", "insight"
+  title       String
+  description String
+  source      String   // "user_feedback", "self_correction", "pattern_analysis"
+  status      String   @default("active") // "active", "applied", "dismissed"
+  createdAt   DateTime @default(now())
 }
