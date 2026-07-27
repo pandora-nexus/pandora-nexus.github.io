@@ -66,18 +66,15 @@ export default function Handbook() {
     recognition.interimResults = true;
 
     recognition.onresult = (event: any) => {
-      // Her yeni sonuçta sessizlik sayacını sıfırla
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
       const text = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
 
-      // 3 saniye sessizlik olursa işle
       silenceTimerRef.current = setTimeout(() => {
         recognition.stop();
         processCommand(text);
       }, 3000);
 
-      // "Hey BEE" anında tetikleme
       if (text.includes("hey bee") || text.includes("hey bi") || text.includes("hey abi")) {
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         recognition.stop();
@@ -138,13 +135,35 @@ export default function Handbook() {
 
       if (res.ok) {
         const data = await res.json();
+
+        // Cevabı düzgün formata çevir
+        let beeText = data.result;
+        if (typeof beeText === "object") {
+          if (beeText.projectType || beeText.tasks) {
+            beeText = "📋 **Proje Planı**\n\n" +
+              "**Tür:** " + (beeText.projectType || "Belirtilmedi") + "\n" +
+              "**Özet:** " + (beeText.summary || "Yok") + "\n" +
+              "**Süre:** " + (beeText.totalEstimatedTime || "Belirtilmedi") + "\n\n" +
+              "**Görevler:**\n" + (beeText.tasks || []).map((t: any) =>
+                `  ${t.id}. **${t.title}** (${t.assignedTo}, ${t.effort})${t.dependsOn?.length ? ' ⬅️ Görev ' + t.dependsOn.join(', ') : ''}`
+              ).join("\n");
+          } else if (beeText.code || beeText.execution) {
+            beeText = "✅ **Kod Üretildi**\n\n" +
+              "**Üreten:** " + (beeText.generatedBy || "AI") + "\n" +
+              "**Denetleyen:** " + (beeText.reviewedBy || "Yok") + "\n" +
+              "**Durum:** " + (beeText.finalStatus || "Belirtilmedi");
+          } else {
+            beeText = JSON.stringify(beeText, null, 2);
+          }
+        }
+
         const beeMsg: Message = {
           role: "bee",
-          text: data.result,
+          text: beeText,
           time: new Date(),
         };
         setMessages((prev) => [...prev, beeMsg]);
-        speak(data.result);
+        speak(beeText);
       } else {
         setMessages((prev) => [
           ...prev,

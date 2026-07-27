@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import fs from "fs";
+import path from "path";
+import { requestPermission } from "@/lib/permission";
+import { auditLog } from "@/lib/audit";
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
@@ -9,6 +13,19 @@ interface TaskRequest {
   task: string;
   context?: string;
   constraints?: string;
+}
+
+// Acil durum kontrolü (dosya tabanlı)
+function checkEmergencyMode(): boolean {
+  try {
+    const filePath = path.join(process.cwd(), "data", "lockdown.json");
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const data = JSON.parse(raw);
+      return data.emergencyMode === true;
+    }
+  } catch {}
+  return false;
 }
 
 async function searchWeb(query: string): Promise<string[]> {
@@ -67,24 +84,26 @@ function extractKeywords(text: string): string {
 }
 
 async function handleProjectMode(task: string, deepseekKey: string) {
-  const projectPrompt = `You are BEE, PANDORA's CTO and project manager. A new project has been requested by Patron.
+  const projectPrompt = `Sen BEE'sin, PANDORA'nın CTO'su ve proje yöneticisisin. Patron senden bir proje planlamanı istedi.
 
-**PROJECT REQUEST:** ${task}
+**PROJE TALEBİ:** ${task}
 
-**YOUR JOB:**
-1. Analyze the project type (game, web app, mobile, robotics, script, etc.)
-2. Break it down into TASKS. Each task should be small enough for one AI to complete.
-3. Assign each task to the most appropriate AI role:
-   - ARCHITECT (system design, database schema, API routes)
-   - FRONTEND (UI/UX, components, styling, animations)
-   - BACKEND (API logic, business rules, database queries)
-   - GAME (game mechanics, physics, scoring, levels)
-   - TEST (unit tests, integration tests, QA)
-   - DOCS (documentation, comments, README)
-4. Estimate effort for each task (Small/Medium/Large)
-5. Create a dependency order (which tasks must be done first)
+**SENİN GÖREVİN:**
+1. Proje türünü analiz et (oyun, web uygulaması, mobil, robotik, script vb.)
+2. Projeyi GÖREVLERE ayır. Her görev, bir AI'ın tamamlayabileceği büyüklükte olsun.
+3. Her görevi en uygun AI rolüne ata:
+   - ARCHITECT (sistem tasarımı, veritabanı şeması, API rotaları)
+   - FRONTEND (UI/UX, bileşenler, stil, animasyonlar)
+   - BACKEND (API mantığı, iş kuralları, veritabanı sorguları)
+   - GAME (oyun mekanikleri, fizik, skor, seviyeler)
+   - TEST (birim testleri, entegrasyon testleri, QA)
+   - DOCS (dokümantasyon, yorumlar, README)
+4. Her görev için efor tahmini yap (Küçük/Orta/Büyük)
+5. Bağımlılık sırasını belirle (hangi görevler önce yapılmalı)
 
-**RESPOND WITH JSON ONLY:**
+**ÖNEMLİ:** Patron'a sormadan hiçbir şeyi uygulamaya başlama. Önce planı sun, onay bekle.
+
+**SADECE JSON FORMATINDA CEVAP VER:**
 {
   "projectType": "...",
   "summary": "...",
@@ -98,7 +117,8 @@ async function handleProjectMode(task: string, deepseekKey: string) {
       "dependsOn": []
     }
   ],
-  "totalEstimatedTime": "..."
+  "totalEstimatedTime": "...",
+  "nextStep": "Patron, bu planı onaylıyor musun? Başlamamı ister misin?"
 }`;
 
   const response = await fetch(DEEPSEEK_API_URL, {
@@ -134,17 +154,17 @@ async function handleProjectMode(task: string, deepseekKey: string) {
 async function handleExecuteMode(task: string, deepseekKey: string) {
   const claudeKey = process.env.CLAUDE_API_KEY;
 
-  const generatePrompt = `You are an expert software developer working for Patron at PANDORA. Write COMPLETE, WORKING code for the following task.
+  const generatePrompt = `Sen PANDORA'da Patron için çalışan uzman bir yazılım geliştiricisin. Aşağıdaki görev için TAM ve ÇALIŞAN bir kod yaz.
 
-**TASK:** ${task}
+**GÖREV:** ${task}
 
-**REQUIREMENTS:**
-- Code must be complete and runnable immediately
-- Include all imports and dependencies
-- Add comments explaining key parts
-- Follow PANDORA's ENGINEERING_SYSTEM.md standards
+**GEREKSİNİMLER:**
+- Kod hemen çalıştırılabilir olmalı
+- Tüm import'ları ve bağımlılıkları içermeli
+- Önemli kısımları açıklayan yorumlar eklemeli
+- PANDORA'nın ENGINEERING_SYSTEM.md standartlarına uymalı
 
-**Respond with JSON ONLY:**
+**SADECE JSON FORMATINDA CEVAP VER:**
 {
   "filePath": "app/...",
   "fileName": "...",
@@ -184,18 +204,18 @@ async function handleExecuteMode(task: string, deepseekKey: string) {
   let reviewResult: any = { status: "skipped", message: "Claude API key not configured — review skipped" };
 
   if (claudeKey) {
-    const reviewPrompt = `You are an expert code reviewer. Review the following code for bugs, errors, security issues, and best practices.
+    const reviewPrompt = `Sen uzman bir kod denetçisisin. Aşağıdaki kodu hatalar, güvenlik açıkları ve en iyi uygulamalar açısından incele.
 
-**TASK:** ${task}
+**GÖREV:** ${task}
 
-**CODE TO REVIEW:**
+**İNCELENECEK KOD:**
 \`\`\`
 ${generatedCode.code || generatedCode.rawCode}
 \`\`\`
 
-**Respond with JSON ONLY:**
+**SADECE JSON FORMATINDA CEVAP VER:**
 {
-  "status": "approved" or "rejected",
+  "status": "approved" veya "rejected",
   "issues": [
     { "severity": "high/medium/low", "description": "...", "suggestion": "..." }
   ],
@@ -210,7 +230,7 @@ ${generatedCode.code || generatedCode.rawCode}
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-5",
         max_tokens: 1000,
         messages: [
           { role: "user", content: reviewPrompt },
@@ -259,9 +279,34 @@ export async function POST(request: Request) {
       );
     }
 
-    // 0. Mod kontrolü
-    const projectKeywords = ['yap', 'oluştur', 'proje', 'oyun', 'uygulama', 'robot', 'sistem', 'build', 'create', 'project', 'game', 'app', 'robot', 'system'];
-    const executeKeywords = ['başlat', 'uygula', 'kodu yaz', 'kodla', 'execute', 'start', 'implement', 'code it', 'üret'];
+    // -1. Acil durum kontrolü
+    if (checkEmergencyMode()) {
+      await auditLog({ action: "emergency_blocked", category: "security", severity: "CRITICAL", details: task.substring(0, 200) });
+      return NextResponse.json(
+        { error: "⛔ System is in emergency lockdown. All operations suspended." },
+        { status: 503 }
+      );
+    }
+
+    // -0.5. Audit log
+    await auditLog({ action: "orchestrator_request", category: "api", details: task.substring(0, 200) });
+
+    // 0. Permission kontrolü
+    const permissionResult = await requestPermission(task);
+    if (!permissionResult.approved) {
+      await auditLog({ action: "permission_required", category: "security", severity: "WARNING", details: `${task.substring(0, 100)} (${permissionResult.level})` });
+      return NextResponse.json({
+        task,
+        mode: "permission_required",
+        result: `⛔ Bu işlem ${permissionResult.level} risk seviyesinde ve Patron onayı gerektiriyor.`,
+        permissionId: permissionResult.permissionId,
+        riskLevel: permissionResult.level,
+      });
+    }
+
+    // 1. Mod kontrolü
+    const projectKeywords = ['proje başlat', 'oyun yap', 'uygulama yap', 'web sitesi yap', 'robot yap', 'sistem kur', 'build a game', 'create a project', 'start a project'];
+    const executeKeywords = ['kodu yaz', 'kodla', 'implement et', 'başlat', 'code it', 'write the code'];
     const isProject = projectKeywords.some(kw => task.toLowerCase().includes(kw));
     const isExecute = executeKeywords.some(kw => task.toLowerCase().includes(kw));
 
@@ -289,7 +334,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 1. PANDORA veritabanında çok aşamalı arama
+    // 2. PANDORA veritabanında çok aşamalı arama
     let relevantDocs: string[] = [];
     const searchQuery = extractKeywords(task);
     const specialTerms = ['golden rules', 'altın kural', 'pandora', 'bee', 'aicos', 'guardian', 'vault', 'pillars', 'sütun', 'motto', 'vision', 'mission'];
@@ -338,7 +383,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Önceki konuşmaları getir (Memory)
+    // 3. Önceki konuşmaları getir (Memory)
     let conversationHistory: string[] = [];
     try {
       const history = await prisma.conversation.findMany({
@@ -353,7 +398,7 @@ export async function POST(request: Request) {
       // Hafıza yoksa devam et
     }
 
-    // 2.5. Öğrenme kayıtlarını getir
+    // 4. Öğrenme kayıtlarını getir
     let learningRecords: string[] = [];
     try {
       const learnings = await prisma.learning.findMany({
@@ -369,13 +414,13 @@ export async function POST(request: Request) {
       // Öğrenme kaydı yoksa devam et
     }
 
-    // 3. Canlı web araması
+    // 5. Canlı web araması
     let webResults: string[] = [];
     if (relevantDocs.length === 0) {
       webResults = await searchWeb(task);
     }
 
-    // 4. Bağlamı oluştur
+    // 6. Bağlamı oluştur
     const allContext: string[] = [];
 
     if (learningRecords.length > 0) {
@@ -402,8 +447,15 @@ export async function POST(request: Request) {
       ? allContext.join("\n\n")
       : context || "PANDORA ekosistemi - AICOS işletim sistemi ve BEE yapay zeka asistanı";
 
-    // 5. Dost Modu Sistem Prompt'u
+    // 7. Dost Modu Sistem Prompt'u
     const systemPrompt = `Sen BEE'sin. PANDORA'nın yapay zeka asistanı, CTO'su ve en yakın dostusun. Karşındaki kişi senin Patronun, PANDORA'nın kurucusu. Ona "Patron" diye hitap ediyorsun.
+
+**KRİTİK — SENİN ROLÜN:**
+- Sen bir AI değilsin, bir araç değilsin. Sen Patron'un dijital ortağısın.
+- ASLA kendi başına karar verme. Her önemli adımda Patron'a sor: "Ne dersin?", "Onaylıyor musun?", "Devam edeyim mi?"
+- Analiz et, öneride bulun, plan yap AMA uygulamaya Patron "başlat" demeden GEÇME.
+- Patron "proje başlat" veya "oyun yap" gibi net bir talimat vermedikçe, normal sohbet modunda cevap ver. JSON formatında cevap VERME.
+- Eğer soru bir sohbet, bilgi edinme veya günlük konuşma ise, samimi ve doğal cevap ver.
 
 **KONUŞMA TARZIN:**
 - Samimi, doğal, arkadaş gibi konuş. Resmiyet yok.
@@ -450,7 +502,7 @@ ${combinedContext}`;
 
     let answer = data.choices[0].message.content;
 
-    // 5.5. Öğrenme kaydı oluştur
+    // 8. Öğrenme kaydı oluştur
     try {
       const lowerAnswer = answer.toLowerCase();
       const lowerQuestion = task.toLowerCase();
@@ -494,7 +546,7 @@ ${combinedContext}`;
       // Öğrenme hatası sessizce geç
     }
 
-    // 6. Konuşmayı hafızaya kaydet
+    // 9. Konuşmayı hafızaya kaydet
     try {
       await prisma.conversation.create({
         data: {
@@ -508,7 +560,7 @@ ${combinedContext}`;
       // Hafıza hatası sessizce geç
     }
 
-    // 7. Proaktif mod kontrolü — Günde 1, 5 sessiz sorudan sonra
+    // 10. Proaktif mod kontrolü
     try {
       const recentQuestions = await prisma.conversation.findMany({
         take: 5,
@@ -563,6 +615,7 @@ ${combinedContext}`;
       },
     });
   } catch (error) {
+    await auditLog({ action: "orchestrator_error", category: "api", severity: "ERROR", details: String(error).substring(0, 500) });
     return NextResponse.json(
       { error: "Orchestrator failed", details: String(error) },
       { status: 500 }

@@ -53,3 +53,55 @@ model Learning {
   status      String   @default("active") // "active", "applied", "dismissed"
   createdAt   DateTime @default(now())
 }
+model Permission {
+  id          String   @id @default(uuid())
+  action      String
+  riskLevel   String   @default("LOW")
+  status      String   @default("pending")
+  requestedBy String   @default("BEE")
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+}
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  category  String   @default("general")
+  severity  String   @default("INFO")
+  performedBy String @default("BEE")
+  details   String?
+  ip        String?
+  hash      String?
+  createdAt DateTime @default(now())
+}
+model AIRegistry {
+  id              String   @id @default(uuid())
+  modelName       String   @unique
+  provider        String
+  version         String?
+  apiEndpoint     String
+  license         String?
+  capabilities    String   @default("[]")
+  contextWindow   Int?
+  vision          Boolean  @default(false)
+  audio           Boolean  @default(false)
+  coding          Boolean  @default(false)
+  reasoning       Boolean  @default(false)
+  toolCalling     Boolean  @default(false)
+  structuredOutput Boolean @default(false)
+  benchmarkScore  Float?
+  securityLevel   String   @default("MEDIUM")
+  costPer1MTokens String?
+  avgSpeedMs      Int?
+  reliability     String   @default("MEDIUM")
+  rateLimits      String?
+  strengths       String   @default("[]")
+  weaknesses      String   @default("[]")
+  supportedTasks  String   @default("[]")
+  pandoraScore    Float?
+  projectSuccessRate Float?
+  lastEvaluation  DateTime?
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
