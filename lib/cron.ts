@@ -1,7 +1,7 @@
 import cron from "node-cron";
 
 export function startCronJobs() {
-  // Her gün saat 09:00'da günlük rapor + proaktif öneriler
+  // Her gün saat 09:00'da günlük rapor + proaktif öneriler + bildirim
   cron.schedule("0 9 * * *", async () => {
     try {
       const res = await fetch("http://localhost:3000/api/cron/daily-report");
@@ -24,6 +24,20 @@ export function startCronJobs() {
         if (suggestions.length > 0) {
           console.log("💡 Proaktif Öneriler:");
           suggestions.forEach(s => console.log(`   • ${s}`));
+
+          // Bildirim olarak da gönder
+          try {
+            await fetch("http://localhost:3000/api/notify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: "☀️ Günaydın Patron!",
+                message: suggestions.join("\n"),
+              }),
+            });
+          } catch {
+            console.error("❌ Bildirim gönderilemedi");
+          }
         }
       }
     } catch (error) {

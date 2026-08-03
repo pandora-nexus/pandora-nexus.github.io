@@ -97,18 +97,46 @@ export default function Handbook() {
     setIsListening(true);
   }
 
-  // BEE'nin cevabını seslendir
-  function speak(text: string) {
+  // BEE'nin cevabını seslendir (ElevenLabs öncelikli, yoksa tarayıcı TTS)
+  async function speak(text: string) {
     if (!voiceOn) return;
-    if (!("speechSynthesis" in window)) return;
 
+    // Seslendirme için metni temizle: emojiler, markdown işaretleri, özel karakterler
     const cleanText = text
-      .replace(/\[📚[^\]]*\]/g, "")
-      .replace(/\[🌐[^\]]*\]/g, "")
-      .replace(/\(👍[^)]*\)/g, "")
-      .replace(/\(🟡[^)]*\)/g, "")
-      .replace(/\(👎[^)]*\)/g, "")
-      .replace(/\n\n💡 Patron.*/gs, "");
+      .replace(/\[.*?\]/g, "")              // [📚 PANDORA Belgeleri] vb.
+      .replace(/\(.*?\)/g, "")              // (👍 Yüksek) vb.
+      .replace(/\*.*?\*/g, "")              // **kalın**
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") // ifadeler
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") // semboller
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") // taşıma
+      .replace(/[\u{2600}-\u{26FF}]/gu, "")   // çeşitli
+      .replace(/[\u{2700}-\u{27BF}]/gu, "")   // el yazısı
+      .replace(/[😊😂🤣❤️🔥👍👎🎉💡🐝🕹️🎮🎨🖥️📂]/g, "") // yaygın emojiler
+      .replace(/✅/g, " onaylandı ")          // ✅
+      .replace(/⛔/g, " durduruldu ")          // ⛔
+      .replace(/\n\n💡 Patron.*/gs, "")       // proaktif öneriyi kaldır
+      .replace(/\s+/g, " ")                   // fazla boşlukları sıkıştır
+      .trim();
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleanText }),
+      });
+
+      if (res.ok) {
+        const audioBlob = await res.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.onended = () => URL.revokeObjectURL(audioUrl);
+        await audio.play();
+        return;
+      }
+    } catch {}
+
+    // ElevenLabs başarısız olursa, tarayıcı TTS'ye geri dön
+    if (!("speechSynthesis" in window)) return;
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = "tr-TR";

@@ -19,6 +19,26 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+        <meta name="theme-color" content="#000000" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                  navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => console.log('✅ Service Worker kaydedildi'))
+                    .catch(err => console.log('❌ Service Worker hatası:', err));
+                });
+              }
+            `,
+          }}
+        />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );

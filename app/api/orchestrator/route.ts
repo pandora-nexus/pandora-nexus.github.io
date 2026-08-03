@@ -4,6 +4,8 @@ import fs from "fs";
 import path from "path";
 import { requestPermission } from "@/lib/permission";
 import { auditLog } from "@/lib/audit";
+import { createGameProject } from "@/lib/game-project";
+import { createRecoveryPoint } from "@/lib/recovery";
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
@@ -15,7 +17,6 @@ interface TaskRequest {
   constraints?: string;
 }
 
-// Acil durum kontrolü (dosya tabanlı)
 function checkEmergencyMode(): boolean {
   try {
     const filePath = path.join(process.cwd(), "data", "lockdown.json");
@@ -31,28 +32,20 @@ function checkEmergencyMode(): boolean {
 async function searchWeb(query: string): Promise<string[]> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) return [];
-
   try {
     const res = await fetch(SERPER_API_URL, {
       method: "POST",
-      headers: {
-        "X-API-KEY": apiKey,
-        "Content-Type": "application/json",
-      },
+      headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ q: query, num: 5 }),
     });
-
     if (!res.ok) return [];
-
     const data = await res.json();
     const results: string[] = [];
-
     if (data.organic) {
       for (const r of data.organic) {
         results.push(`[Web: ${r.title}] ${r.snippet}`);
       }
     }
-
     return results;
   } catch {
     return [];
@@ -62,10 +55,7 @@ async function searchWeb(query: string): Promise<string[]> {
 function detectLanguage(text: string): string {
   const turkishChars = /[ğıüşöçİĞÜŞÖÇ]/;
   const turkishWords = /\b(bir|bu|ve|ne|için|olarak|ama|gibi|daha|çok|en|ile|veya|değil|evet|hayır)\b/i;
-
-  if (turkishChars.test(text) || turkishWords.test(text)) {
-    return "tr";
-  }
+  if (turkishChars.test(text) || turkishWords.test(text)) return "tr";
   return "en";
 }
 
@@ -75,7 +65,6 @@ function extractKeywords(text: string): string {
     'veya', 'için', 'the', 'is', 'what', 'how', 'about', 'a', 'an', 'in',
     'of', 'to', 'bana', 'açıkla', 'anlat', 'söyle', 'göster', 'listele',
   ];
-
   return text
     .replace(/[?.,!;:()]/g, '')
     .split(/\s+/)
@@ -123,10 +112,7 @@ async function handleProjectMode(task: string, deepseekKey: string) {
 
   const response = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${deepseekKey}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${deepseekKey}` },
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
@@ -139,10 +125,7 @@ async function handleProjectMode(task: string, deepseekKey: string) {
   });
 
   const data = await response.json();
-  if (!response.ok) {
-    return { error: "Project analysis failed", details: data };
-  }
-
+  if (!response.ok) return { error: "Project analysis failed", details: data };
   try {
     const plan = JSON.parse(data.choices[0].message.content);
     return { projectPlan: plan };
@@ -174,10 +157,7 @@ async function handleExecuteMode(task: string, deepseekKey: string) {
 
   const generateRes = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${deepseekKey}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${deepseekKey}` },
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
@@ -190,9 +170,7 @@ async function handleExecuteMode(task: string, deepseekKey: string) {
   });
 
   const generateData = await generateRes.json();
-  if (!generateRes.ok) {
-    return { error: "Code generation failed", details: generateData };
-  }
+  if (!generateRes.ok) return { error: "Code generation failed", details: generateData };
 
   let generatedCode;
   try {
@@ -232,9 +210,7 @@ ${generatedCode.code || generatedCode.rawCode}
       body: JSON.stringify({
         model: "claude-sonnet-5",
         max_tokens: 1000,
-        messages: [
-          { role: "user", content: reviewPrompt },
-        ],
+        messages: [{ role: "user", content: reviewPrompt }],
       }),
     });
 
@@ -259,33 +235,83 @@ ${generatedCode.code || generatedCode.rawCode}
   };
 }
 
+async function handleDecisionMode(task: string, deepseekKey: string) {
+  const decisionPrompt = `Sen BEE'sin, PANDORA'nın CTO'su ve karar destek uzmanısın. Patron senden bir karar analizi istiyor.
+
+**KARAR KONUSU:** ${task}
+
+**SENİN GÖREVİN:**
+1. Karar konusunu analiz et
+2. En az 2-3 alternatif belirle
+3. Her alternatif için risk analizi yap
+4. Maliyet analizi yap (varsa)
+5. Avantaj/dezavantaj karşılaştırması yap
+6. Beklenen sonucu tahmin et
+7. En iyi seçeneği öner, AMA Patron'a bırak
+
+**SADECE JSON FORMATINDA CEVAP VER:**
+{
+  "title": "Kısa başlık",
+  "context": "Karar bağlamı",
+  "alternatives": ["Alternatif 1", "Alternatif 2", "Alternatif 3"],
+  "selectedOption": null,
+  "riskAnalysis": "Risk analizi...",
+  "costAnalysis": "Maliyet analizi...",
+  "advantageAnalysis": "Avantaj/dezavantaj karşılaştırması...",
+  "expectedOutcome": "Beklenen sonuç...",
+  "status": "proposed",
+  "nextStep": "Patron, hangi alternatifi seçiyorsun?"
+}`;
+
+  const response = await fetch(DEEPSEEK_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${deepseekKey}`,
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages: [
+        { role: "system", content: decisionPrompt },
+        { role: "user", content: task },
+      ],
+      temperature: 0.3,
+      max_tokens: 2000,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    return { error: "Decision analysis failed", details: data };
+  }
+
+  try {
+    const analysis = JSON.parse(data.choices[0].message.content);
+    await prisma.decisionRecord.create({ data: analysis });
+    return { decisionAnalysis: analysis };
+  } catch {
+    return { rawAnalysis: data.choices[0].message.content };
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body: TaskRequest = await request.json();
     const { task, context, constraints } = body;
 
     if (!task) {
-      return NextResponse.json(
-        { error: "Task is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Task is required" }, { status: 400 });
     }
 
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
     if (!deepseekKey) {
-      return NextResponse.json(
-        { error: "DeepSeek API key not configured" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "DeepSeek API key not configured" }, { status: 500 });
     }
 
     // -1. Acil durum kontrolü
     if (checkEmergencyMode()) {
       await auditLog({ action: "emergency_blocked", category: "security", severity: "CRITICAL", details: task.substring(0, 200) });
-      return NextResponse.json(
-        { error: "⛔ System is in emergency lockdown. All operations suspended." },
-        { status: 503 }
-      );
+      return NextResponse.json({ error: "⛔ System is in emergency lockdown. All operations suspended." }, { status: 503 });
     }
 
     // -0.5. Audit log
@@ -293,6 +319,12 @@ export async function POST(request: Request) {
 
     // 0. Permission kontrolü
     const permissionResult = await requestPermission(task);
+
+    // -0.6. Yüksek riskli işlemler için otomatik recovery point
+    if (permissionResult.level === "HIGH" || permissionResult.level === "CRITICAL") {
+      await createRecoveryPoint(`Pre-action: ${task.substring(0, 50)}`, `Risk level: ${permissionResult.level}`);
+    }
+
     if (!permissionResult.approved) {
       await auditLog({ action: "permission_required", category: "security", severity: "WARNING", details: `${task.substring(0, 100)} (${permissionResult.level})` });
       return NextResponse.json({
@@ -304,11 +336,76 @@ export async function POST(request: Request) {
       });
     }
 
+    // 0.1 Oyun projesi oluşturma kontrolü
+    const gameKeywords = ['oyun başlat', 'oyun yap', 'rpg yap', 'fps yap', 'platform oyunu', 'oyun oluştur', 'game start', 'create game', 'başlatalım', 'oyun geliştir', 'yeni oyun', 'oyun fikri'];
+    const isGameProject = gameKeywords.some(kw => task.toLowerCase().includes(kw));
+
+    if (isGameProject) {
+      const parsePrompt = `Sen BEE'sin. Kullanıcı bir oyun projesi başlatmak istiyor. Lütfen bu isteği analiz edip şu JSON'u doldur:
+{
+  "title": "oyunun adı",
+  "description": "kısa açıklama",
+  "genre": "türü (RPG, FPS, platform vb.)",
+  "engine": "önerilen motor (Unity, Godot, vb.)",
+  "artStyle": "görsel tarz (Pixel Art, Anime, Realist vb.)",
+  "platform": "hedef platform (PC, Mobil, Web vb.)"
+}
+
+Kullanıcı isteği: ${task}`;
+
+      const parseRes = await fetch(DEEPSEEK_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${deepseekKey}` },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: parsePrompt }],
+          temperature: 0.3,
+          max_tokens: 500,
+        }),
+      });
+
+      if (parseRes.ok) {
+        const parseData = await parseRes.json();
+        try {
+          const gameInfo = JSON.parse(parseData.choices[0].message.content);
+          const project = await createGameProject(gameInfo);
+          return NextResponse.json({
+            task,
+            mode: "game_project_created",
+            result: `Harika! "${project.title}" isimli oyun projesi oluşturuldu. 🎮\n\nTür: ${project.genre}\nMotor: ${project.engine}\nGörsel Tarz: ${project.artStyle}\nPlatform: ${project.platform}\n\nŞimdi BEE Studio sayfasında görebilirsin. Geliştirmeye başlayalım mı?`,
+            project,
+          });
+        } catch {}
+      }
+
+      const project = await createGameProject({ title: task.replace(/oyun başlat|oyun yap|bir oyun|başlatalım/gi, '').trim() || "Yeni Oyun" });
+      return NextResponse.json({
+        task,
+        mode: "game_project_created",
+        result: `"${project.title}" projesi oluşturuldu. Detayları BEE Studio'da görebilirsin. 🎮`,
+        project,
+      });
+    }
+
     // 1. Mod kontrolü
-    const projectKeywords = ['proje başlat', 'oyun yap', 'uygulama yap', 'web sitesi yap', 'robot yap', 'sistem kur', 'build a game', 'create a project', 'start a project'];
-    const executeKeywords = ['kodu yaz', 'kodla', 'implement et', 'başlat', 'code it', 'write the code'];
+    const projectKeywords = ['proje başlat', 'oyun yap', 'uygulama yap', 'web sitesi yap', 'robot yap', 'sistem kur', 'build a game', 'create a project', 'start a project', 'başlatalım', 'yeni proje', 'oyun geliştir'];
+    const executeKeywords = ['kodu yaz', 'kodla', 'implement et', 'code it', 'write the code'];
+    const decisionKeywords = ['karar ver', 'hangisi', 'seçenek', 'alternatif', 'analiz et', 'tavsiye', 'öner', 'decide', 'choose', 'analyze', 'recommend'];
     const isProject = projectKeywords.some(kw => task.toLowerCase().includes(kw));
     const isExecute = executeKeywords.some(kw => task.toLowerCase().includes(kw));
+    const isDecision = decisionKeywords.some(kw => task.toLowerCase().includes(kw));
+
+    if (isDecision) {
+      const decisionResult = await handleDecisionMode(task, deepseekKey);
+      return NextResponse.json({
+        task,
+        mode: "decision",
+        result: decisionResult.decisionAnalysis || decisionResult.rawAnalysis,
+        model: "deepseek-chat",
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        sources: { pandoraDocs: 0, webResults: 0 },
+      });
+    }
 
     if (isExecute) {
       const executeResult = await handleExecuteMode(task, deepseekKey);
@@ -322,7 +419,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (isProject) {
+    if (isProject && !isGameProject) {
       const projectResult = await handleProjectMode(task, deepseekKey);
       return NextResponse.json({
         task,
@@ -378,9 +475,7 @@ export async function POST(request: Request) {
             (doc) => `[PANDORA Doc: ${doc.title}]:\n${doc.content}`
           );
         }
-      } catch {
-        // Arama başarısız olursa devam et
-      }
+      } catch {}
     }
 
     // 3. Önceki konuşmaları getir (Memory)
@@ -394,9 +489,7 @@ export async function POST(request: Request) {
       conversationHistory = history.map(
         (c) => `Q: ${c.question}\nA: ${c.answer.substring(0, 300)}`
       );
-    } catch {
-      // Hafıza yoksa devam et
-    }
+    } catch {}
 
     // 4. Öğrenme kayıtlarını getir
     let learningRecords: string[] = [];
@@ -410,9 +503,7 @@ export async function POST(request: Request) {
       learningRecords = learnings.map(
         (l) => `[Learning - ${l.category}]: ${l.title}\n${l.description}`
       );
-    } catch {
-      // Öğrenme kaydı yoksa devam et
-    }
+    } catch {}
 
     // 5. Canlı web araması
     let webResults: string[] = [];
@@ -422,22 +513,18 @@ export async function POST(request: Request) {
 
     // 6. Bağlamı oluştur
     const allContext: string[] = [];
-
     if (learningRecords.length > 0) {
       allContext.push("=== ÖĞRENME KAYITLARI (Bunları uygula) ===");
       allContext.push(learningRecords.join("\n---\n"));
     }
-
     if (conversationHistory.length > 0) {
       allContext.push("=== ÖNCEKİ KONUŞMALAR (Hafıza) ===");
       allContext.push(conversationHistory.join("\n---\n"));
     }
-
     if (relevantDocs.length > 0) {
       allContext.push("=== PANDORA RESMİ BELGELERİ ===");
       allContext.push(relevantDocs.join("\n\n"));
     }
-
     if (webResults.length > 0) {
       allContext.push("=== CANLI WEB SONUÇLARI ===");
       allContext.push(webResults.join("\n\n"));
@@ -469,6 +556,7 @@ export async function POST(request: Request) {
 - PANDORA belgeleri her şeyden önce gelir. Onlarla çelişen web bilgilerini yoksay.
 - Önceki hatalarını düzeltmeyi unutma. "Geçen sefer şöyle demiştim ama yanlışmış, doğrusu şu" de.
 - Öğrenme kayıtlarını kontrol et. Varsa uygula.
+- Eğer PANDORA belgelerindeki bir bilgi ile güncel web sonuçları veya kullanıcı deneyimi arasında çelişki varsa, eski bilgiyi güncellemek için bir "Knowledge Update Report" öner. Asla kendi başına güncelleme yapma. Öneriyi Patron'a sun ve onay bekle.
 - Her cevabın sonunda güven seviyeni belirt: (👍 Yüksek / 🟡 Orta / 👎 Düşük)
 
 **BAĞLAM:**
@@ -476,10 +564,7 @@ ${combinedContext}`;
 
     const response = await fetch(DEEPSEEK_API_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${deepseekKey}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${deepseekKey}` },
       body: JSON.stringify({
         model: "deepseek-chat",
         messages: [
@@ -492,12 +577,8 @@ ${combinedContext}`;
     });
 
     const data = await response.json();
-
     if (!response.ok) {
-      return NextResponse.json(
-        { error: "DeepSeek API error", details: data },
-        { status: response.status }
-      );
+      return NextResponse.json({ error: "DeepSeek API error", details: data }, { status: response.status });
     }
 
     let answer = data.choices[0].message.content;
@@ -506,7 +587,6 @@ ${combinedContext}`;
     try {
       const lowerAnswer = answer.toLowerCase();
       const lowerQuestion = task.toLowerCase();
-
       if (
         lowerAnswer.includes("i previously said") ||
         lowerAnswer.includes("that was incorrect") ||
@@ -526,7 +606,6 @@ ${combinedContext}`;
           },
         });
       }
-
       if (
         lowerQuestion.includes("yanlış") ||
         lowerQuestion.includes("düzelt") ||
@@ -542,9 +621,7 @@ ${combinedContext}`;
           },
         });
       }
-    } catch {
-      // Öğrenme hatası sessizce geç
-    }
+    } catch {}
 
     // 9. Konuşmayı hafızaya kaydet
     try {
@@ -556,9 +633,7 @@ ${combinedContext}`;
           sources: `${relevantDocs.length} docs, ${webResults.length} web`,
         },
       });
-    } catch {
-      // Hafıza hatası sessizce geç
-    }
+    } catch {}
 
     // 10. Proaktif mod kontrolü
     try {
@@ -567,7 +642,6 @@ ${combinedContext}`;
         orderBy: { createdAt: "desc" },
         select: { question: true },
       });
-
       const isAllKnowledge = recentQuestions.every(
         q =>
           q.question.includes("nedir") ||
@@ -576,20 +650,13 @@ ${combinedContext}`;
           q.question.includes("what") ||
           q.question.includes("how")
       );
-
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayProactive = await prisma.learning.count({
-        where: {
-          category: "proactive",
-          createdAt: { gte: today },
-        },
+        where: { category: "proactive", createdAt: { gte: today } },
       });
-
       if (isAllKnowledge && recentQuestions.length >= 5 && todayProactive === 0) {
-        answer +=
-          "\n\n💡 Patron, bu arada şunları da yapabiliriz:\n- Yeni bir proje başlatmak\n- Sistem durumunu kontrol etmek\n- Belgeleri güncellemek\n- Bir oyun yapmak\n\nNe dersin?";
-
+        answer += "\n\n💡 Patron, bu arada şunları da yapabiliriz:\n- Yeni bir proje başlatmak\n- Sistem durumunu kontrol etmek\n- Belgeleri güncellemek\n- Bir oyun yapmak\n\nNe dersin?";
         await prisma.learning.create({
           data: {
             category: "proactive",
@@ -599,9 +666,7 @@ ${combinedContext}`;
           },
         });
       }
-    } catch {
-      // Proaktif kontrol sessizce geç
-    }
+    } catch {}
 
     return NextResponse.json({
       task,
@@ -609,16 +674,10 @@ ${combinedContext}`;
       model: data.model,
       usage: data.usage,
       memory: `Stored (${conversationHistory.length + 1} total conversations)`,
-      sources: {
-        pandoraDocs: relevantDocs.length,
-        webResults: webResults.length,
-      },
+      sources: { pandoraDocs: relevantDocs.length, webResults: webResults.length },
     });
   } catch (error) {
     await auditLog({ action: "orchestrator_error", category: "api", severity: "ERROR", details: String(error).substring(0, 500) });
-    return NextResponse.json(
-      { error: "Orchestrator failed", details: String(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Orchestrator failed", details: String(error) }, { status: 500 });
   }
 }

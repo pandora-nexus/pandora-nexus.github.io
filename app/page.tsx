@@ -40,6 +40,12 @@ export default function Home() {
           >
             Studio
           </Link>
+          <Link
+            href="/dashboard"
+            className="border border-yellow-500 text-yellow-500 px-6 py-3 hover:bg-yellow-500 hover:text-black transition"
+          >
+            Dashboard
+          </Link>
         </div>
       </main>
 
