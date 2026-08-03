@@ -1,22 +1,31 @@
 import { prisma } from "@/lib/prisma";
 
-export async function createGameProject(data: {
+interface GameProjectInput {
   title: string;
   description?: string;
   genre?: string;
   engine?: string;
   artStyle?: string;
   platform?: string;
-}) {
+}
+
+export async function createGameProject(input: GameProjectInput) {
   return prisma.gameProject.create({
     data: {
-      title: data.title,
-      description: data.description || "",
-      genre: data.genre || "",
-      engine: data.engine || "",
-      artStyle: data.artStyle || "",
-      platform: data.platform || "",
+      title: input.title || "Yeni Oyun",
+      description: input.description || "",
+      genre: input.genre || "Belirtilmedi",
+      engine: input.engine || "Belirtilmedi",
+      artStyle: input.artStyle || "Belirtilmedi",
+      platform: input.platform || "PC",
       status: "planning",
     },
+  });
+}
+
+export async function listGameProjects() {
+  return prisma.gameProject.findMany({
+    orderBy: { updatedAt: "desc" },
+    include: { assets: true },
   });
 }
