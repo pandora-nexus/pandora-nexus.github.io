@@ -1,4 +1,7 @@
 import cron from "node-cron";
+import { runBackgroundResearch } from "@/lib/background-research";
+import { runSecurityAudit } from "@/lib/auto-updater";
+import { runStabilityCheck } from "@/lib/system-stability";
 
 export function startCronJobs() {
   // Her gün saat 09:00'da günlük rapor + proaktif öneriler + bildirim
@@ -53,6 +56,42 @@ export function startCronJobs() {
       console.log("✅ Health check passed");
     } catch {
       console.error("❌ Database connection failed");
+    }
+  });
+
+  // Her 30 dakikada bir arkaplan araştırması
+  cron.schedule("*/30 * * * *", async () => {
+    try {
+      await runBackgroundResearch();
+    } catch (error) {
+      console.error("❌ Background research failed:", error);
+    }
+  });
+
+  // Her gece 03:00'te güvenlik denetimi
+  cron.schedule("0 3 * * *", async () => {
+    try {
+      const report = await runSecurityAudit();
+      if (report.critical > 0 || report.high > 0) {
+        console.log(`⚠️ Güvenlik uyarısı: ${report.critical} kritik, ${report.high} yüksek açık!`);
+      } else {
+        console.log(`✅ Güvenlik denetimi temiz.`);
+      }
+    } catch (error) {
+      console.error("❌ Güvenlik denetimi başarısız:", error);
+    }
+  });
+
+  // Her 6 saatte bir stabilite kontrolü
+  cron.schedule("0 */6 * * *", async () => {
+    try {
+      const report = await runStabilityCheck();
+      console.log(`🔧 Stabilite raporu: ${report.recommendations.length} öneri`);
+      if (report.recommendations.length > 0) {
+        report.recommendations.forEach(r => console.log(`   • ${r}`));
+      }
+    } catch (error) {
+      console.error("❌ Stabilite kontrolü başarısız:", error);
     }
   });
 

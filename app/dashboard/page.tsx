@@ -106,6 +106,75 @@ export default function Dashboard() {
         if (panel) panel.innerHTML = '<p class="text-red-400">Analiz alınamadı.</p>';
       });
 
+    // Bildirimleri yükle
+    fetch("/api/notifications")
+      .then(res => res.json())
+      .then(notifs => {
+        const panel = document.getElementById("notif-center");
+        if (panel && notifs.length > 0) {
+          panel.innerHTML = notifs.slice(0, 20).map((n: any) => `
+            <div class="flex items-start gap-3 bg-gray-800 rounded p-3 text-xs">
+              <span class="text-lg">${n.icon}</span>
+              <div class="flex-1">
+                <p class="font-bold text-gray-300">${n.title}</p>
+                <p class="text-gray-500">${n.detail || ""}</p>
+              </div>
+              <span class="text-gray-600 whitespace-nowrap">${new Date(n.time).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
+          `).join("");
+        } else if (panel && notifs.length === 0) {
+          panel.innerHTML = '<p class="text-gray-500 text-sm">Henüz bildirim yok.</p>';
+        }
+      })
+      .catch(() => {
+        const panel = document.getElementById("notif-center");
+        if (panel) panel.innerHTML = '<p class="text-red-400">Bildirimler alınamadı.</p>';
+      });
+
+    // Proje yönetim verilerini yükle
+    fetch("/api/project-manager")
+      .then(res => res.json())
+      .then(data => {
+        const panel = document.getElementById("project-manager-panel");
+        if (panel && data.totalProjects) {
+          panel.innerHTML = `
+            <div class="grid grid-cols-3 gap-4 mb-4">
+              <div class="bg-gray-800 rounded p-3 text-center">
+                <p class="text-2xl font-bold text-green-400">${data.totalProjects}</p>
+                <p class="text-xs text-gray-500">Toplam Proje</p>
+              </div>
+              <div class="bg-gray-800 rounded p-3 text-center">
+                <p class="text-2xl font-bold text-yellow-400">${data.activeProjects}</p>
+                <p class="text-xs text-gray-500">Aktif Proje</p>
+              </div>
+              <div class="bg-gray-800 rounded p-3 text-center">
+                <p class="text-2xl font-bold text-purple-400">${(data.totalTokenEstimate || 0).toLocaleString()}</p>
+                <p class="text-xs text-gray-500">Tahmini Token</p>
+              </div>
+            </div>
+            <div class="space-y-2 max-h-40 overflow-y-auto">
+              ${data.projects?.map((p: any) => `
+                <div class="bg-gray-800 rounded p-3 flex items-center justify-between text-xs">
+                  <div>
+                    <span class="font-bold">${p.name}</span>
+                    <span class="text-gray-500 ml-2">${p.type === "game" ? "🎮" : "💬"} ${p.type}</span>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <span class="${p.status === "active" ? "text-green-400" : "text-yellow-400"}">${p.status}</span>
+                    <span class="text-gray-500">${p.messageCount} msj</span>
+                    <span class="text-gray-600">~${p.tokenUsage.toLocaleString()} token</span>
+                  </div>
+                </div>
+              `).join("") || '<p class="text-gray-500">Henüz proje yok.</p>'}
+            </div>
+          `;
+        }
+      })
+      .catch(() => {
+        const panel = document.getElementById("project-manager-panel");
+        if (panel) panel.innerHTML = '<p class="text-red-400">Proje verileri alınamadı.</p>';
+      });
+
     // Bildirim izin durumunu kontrol et
     if (typeof window !== "undefined" && "Notification" in window) {
       setNotifEnabled(Notification.permission === "granted");
@@ -249,6 +318,22 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+
+        {/* Proje Yönetim Paneli */}
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+          <h2 className="text-sm font-bold text-yellow-500 mb-4">📂 Proje Yönetimi</h2>
+          <div className="space-y-3 text-sm" id="project-manager-panel">
+            <p className="text-gray-400">Yükleniyor...</p>
+          </div>
+        </div>
+
+        {/* Bildirim Merkezi */}
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+          <h2 className="text-sm font-bold text-yellow-500 mb-4">🔔 Bildirim Merkezi</h2>
+          <div className="space-y-2 max-h-60 overflow-y-auto" id="notif-center">
+            <p className="text-gray-400 text-sm">Yükleniyor...</p>
           </div>
         </div>
 

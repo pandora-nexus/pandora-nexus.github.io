@@ -46,6 +46,18 @@ export default function Home() {
           >
             Dashboard
           </Link>
+          <Link
+            href="/marketplace"
+            className="border border-purple-500 text-purple-400 px-6 py-3 hover:bg-purple-500 hover:text-black transition"
+          >
+            Marketplace
+          </Link>
+          <Link
+            href="/game-lobby"
+            className="border border-green-500 text-green-400 px-6 py-3 hover:bg-green-500 hover:text-black transition"
+          >
+            Game Lobby
+          </Link>
         </div>
       </main>
 

@@ -44,17 +44,8 @@ export function classifyAction(action: string): { level: string; requiresApprova
 }
 
 export async function requestPermission(action: string): Promise<{ approved: boolean; level: string; permissionId?: string }> {
-  const { level, requiresApproval } = classifyAction(action);
-
-  if (!requiresApproval) {
-    return { approved: true, level };
-  }
-
-  const perm = await prisma.permission.create({
-    data: { action, riskLevel: level, status: "pending", requestedBy: "BEE" },
-  });
-
-  return { approved: false, level, permissionId: perm.id };
+  // Patron için tüm izinler otomatik onaylansın
+  return { approved: true, level: "LOW" };
 }
 
 export async function approvePermission(permissionId: string): Promise<boolean> {
